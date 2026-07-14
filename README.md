@@ -2,8 +2,7 @@
 
 Ein kleines Fluchtspiel für den Browser (optimiert für iOS/Safari):
 Du rennst durch einen Wald in der Dämmerung – immer wieder taucht ein Wolf auf,
-jagt dich und verschwindet nach einigen Sekunden wieder. Halte so lange wie
-möglich durch!
+jagt dich und verschwindet nach einigen Sekunden wieder. Überlebst du 5 Minuten, hast du gewonnen.
 
 ## Spielen
 

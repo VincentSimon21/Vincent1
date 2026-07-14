@@ -99,8 +99,8 @@
 
 <div id="hud" aria-hidden="true">
   <div class="hud-block">
-    <span class="hud-label">Überlebt</span>
-    <span class="hud-value" id="time">0,0 s</span>
+    <span class="hud-label">Überlebt · Ziel 5:00</span>
+    <span class="hud-value" id="time">0:00,0</span>
   </div>
   <div class="hud-block hud-right">
     <span class="hud-label">Wölfe entkommen</span>
@@ -112,13 +112,13 @@
 <div class="overlay" id="startScreen">
   <div class="eyebrow">Dämmerung im Unterholz</div>
   <h1>Wolfs&shy;wald</h1>
-  <p class="sub">Du bist allein im Wald. Immer wieder taucht ein <strong>Wolf</strong> auf und jagt dich – halte durch, bis er das Interesse verliert und wieder verschwindet.<br><br><strong>Finger aufsetzen und ziehen</strong>, um zu rennen.</p>
+  <p class="sub">Du bist allein im Wald. Immer wieder taucht ein <strong>Wolf</strong> auf und jagt dich – halte durch, bis er das Interesse verliert und wieder verschwindet.<br><br>Überlebe <strong>5 Minuten</strong>, dann bist du in Sicherheit.<br><strong>Finger aufsetzen und ziehen</strong>, um zu rennen.</p>
   <button id="startBtn">Loslaufen</button>
   <p class="hint">Läuft komplett offline · keine Verbindungen nach außen</p>
 </div>
 
 <div class="overlay hidden" id="overScreen">
-  <div class="eyebrow">Der Wald wird still</div>
+  <div class="eyebrow" id="overEyebrow">Der Wald wird still</div>
   <h1 id="overTitle">Erwischt!</h1>
   <div id="finalStats">
     <div class="stat">
@@ -250,6 +250,21 @@ function chime(){ // Wolf gibt auf
     });
   }catch(e){}
 }
+function fanfare(){ // 5 Minuten geschafft
+  try{
+    const ac = audio(), t = ac.currentTime;
+    [392, 523, 659, 784].forEach((fr, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'triangle'; o.frequency.value = fr;
+      const t0 = t + i*.16, dur = i === 3 ? 1.1 : .4;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(.16, t0 + .02);
+      g.gain.exponentialRampToValueAtTime(.001, t0 + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0); o.stop(t0 + dur + .05);
+    });
+  }catch(e){}
+}
 function thud(){ // erwischt
   try{
     const ac = audio(), t = ac.currentTime;
@@ -266,7 +281,12 @@ function thud(){ // erwischt
 
 /* ================= Spielzustand ================= */
 const S = { MENU:0, PLAY:1, OVER:2 };
+const GOAL = 300; // nach 5 Minuten ist das Spiel gewonnen
 let state = S.MENU;
+function fmt(s){
+  const m = Math.floor(s/60), sec = s - m*60;
+  return m + ':' + sec.toFixed(1).padStart(4, '0').replace('.', ',');
+}
 let player, wolf, camX, camY, elapsed, wolvesEscaped, nextWolfIn, warning, shake;
 let best = 0;
 try { best = parseFloat(localStorage.getItem('wolfswald-best')) || 0; } catch(e){}
@@ -373,24 +393,39 @@ function collideTrees(ent, er){
   }
 }
 
-function caught(){
+function finish(won){
   state = S.OVER;
-  thud();
-  shake = 14;
   if (elapsed > best){
     best = elapsed;
     try { localStorage.setItem('wolfswald-best', String(best)); } catch(e){}
   }
-  document.getElementById('finalTime').textContent = elapsed.toFixed(1).replace('.', ',') + ' s';
+  const eyebrow = document.getElementById('overEyebrow');
+  const title = document.getElementById('overTitle');
+  if (won){
+    fanfare();
+    wolf = null; warning = 0;
+    eyebrow.textContent = 'Der Morgen graut';
+    title.textContent = 'Entkommen!';
+    title.style.color = 'var(--amber)';
+  } else {
+    thud();
+    shake = 14;
+    eyebrow.textContent = 'Der Wald wird still';
+    title.textContent = 'Erwischt!';
+    title.style.color = 'var(--danger)';
+  }
+  document.getElementById('finalTime').textContent = fmt(elapsed);
   document.getElementById('finalWolves').textContent = wolvesEscaped;
-  document.getElementById('bestTime').textContent = best.toFixed(1).replace('.', ',') + ' s';
+  document.getElementById('bestTime').textContent = fmt(best);
   document.getElementById('alarm').classList.remove('on');
-  setTimeout(() => document.getElementById('overScreen').classList.remove('hidden'), 550);
+  setTimeout(() => document.getElementById('overScreen').classList.remove('hidden'), won ? 300 : 550);
 }
+function caught(){ finish(false); }
 
 function update(dt){
   if (state !== S.PLAY) return;
   elapsed += dt;
+  if (elapsed >= GOAL){ elapsed = GOAL; finish(true); return; }
 
   const v = inputVector();
   player.moving = v.m > 0;
@@ -426,7 +461,7 @@ function update(dt){
   camY += (player.y - camY) * Math.min(1, dt*5);
   if (shake > 0) shake = Math.max(0, shake - dt*30);
 
-  document.getElementById('time').textContent = elapsed.toFixed(1).replace('.', ',') + ' s';
+  document.getElementById('time').textContent = fmt(elapsed);
   document.getElementById('wolfCount').textContent = wolvesEscaped;
 }
 
