@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Wolfswald – Lauf!</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<style>
+  :root{
+    --pine:#0d1f14; --pine-2:#12281a; --moss:#2f5233; --moss-2:#3f6b3e;
+    --mist:#a7c49a; --birch:#ece6d4; --amber:#e8a33d; --danger:#c9403a;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--pine); color:var(--birch);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    overflow:hidden; position:fixed; inset:0; width:100%;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent;
+    touch-action:none; overscroll-behavior:none;
+  }
+  #game{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:fixed; top:0; left:0; right:0;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none;
+  }
+  .hud-block{display:flex; flex-direction:column; gap:2px;}
+  .hud-label{
+    font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--mist); opacity:.85;
+  }
+  .hud-value{
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;
+    font-variant-numeric:tabular-nums;
+    font-size:22px; font-weight:700; color:var(--birch);
+    text-shadow:0 1px 4px rgba(0,0,0,.6);
+  }
+  .hud-right{text-align:right; align-items:flex-end;}
+  #wolfCount{color:var(--amber);}
+
+  #alarm{
+    position:fixed; top:calc(58px + env(safe-area-inset-top)); left:50%;
+    transform:translateX(-50%);
+    font-size:13px; font-weight:800; letter-spacing:.3em; text-transform:uppercase;
+    color:var(--danger); text-shadow:0 0 12px rgba(201,64,58,.8);
+    opacity:0; transition:opacity .25s; pointer-events:none;
+    animation:pulse 1s ease-in-out infinite;
+  }
+  #alarm.on{opacity:1;}
+  @keyframes pulse{50%{transform:translateX(-50%) scale(1.12);}}
+
+  /* ---------- Overlays ---------- */
+  .overlay{
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    padding:32px calc(20px + env(safe-area-inset-left));
+    background:radial-gradient(120% 120% at 50% 30%, rgba(13,31,20,.55), rgba(7,16,11,.92));
+    backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+    transition:opacity .4s; z-index:10;
+  }
+  .overlay.hidden{opacity:0; pointer-events:none;}
+  .eyebrow{
+    font-size:11px; letter-spacing:.32em; text-transform:uppercase;
+    color:var(--amber); margin-bottom:14px;
+  }
+  h1{
+    margin:0 0 10px; font-size:clamp(40px,11vw,68px); font-weight:900;
+    letter-spacing:-.03em; line-height:.95; color:var(--birch);
+    text-wrap:balance; text-shadow:0 2px 24px rgba(0,0,0,.5);
+  }
+  .sub{
+    max-width:34ch; margin:0 auto 30px; font-size:15px; line-height:1.55;
+    color:var(--mist);
+  }
+  .sub strong{color:var(--birch); font-weight:600;}
+  button{
+    pointer-events:auto; cursor:pointer; border:none; border-radius:999px;
+    padding:16px 42px; font:inherit; font-size:17px; font-weight:700;
+    letter-spacing:.04em; color:#1a1206; background:var(--amber);
+    box-shadow:0 4px 18px rgba(232,163,61,.35), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  button:active{transform:scale(.96);}
+  button:focus-visible{outline:3px solid var(--birch); outline-offset:3px;}
+  #finalStats{
+    display:flex; gap:34px; justify-content:center; margin-bottom:30px;
+  }
+  .stat .hud-value{font-size:34px;}
+  .stat .hud-label{margin-top:4px;}
+  #overTitle{color:var(--danger);}
+  .hint{margin-top:22px; font-size:12px; color:var(--mist); opacity:.7; letter-spacing:.06em;}
+</style>
+
+</head>
+<body>
+<canvas id="game" aria-label="Wolfswald Spiel"></canvas>
+
+<div id="hud" aria-hidden="true">
+  <div class="hud-block">
+    <span class="hud-label">Überlebt</span>
+    <span class="hud-value" id="time">0,0 s</span>
+  </div>
+  <div class="hud-block hud-right">
+    <span class="hud-label">Wölfe entkommen</span>
+    <span class="hud-value" id="wolfCount">0</span>
+  </div>
+</div>
+<div id="alarm">⚠ Wolf!</div>
+
+<div class="overlay" id="startScreen">
+  <div class="eyebrow">Dämmerung im Unterholz</div>
+  <h1>Wolfs&shy;wald</h1>
+  <p class="sub">Du bist allein im Wald. Immer wieder taucht ein <strong>Wolf</strong> auf und jagt dich – halte durch, bis er das Interesse verliert und wieder verschwindet.<br><br><strong>Finger aufsetzen und ziehen</strong>, um zu rennen.</p>
+  <button id="startBtn">Loslaufen</button>
+  <p class="hint">Läuft komplett offline · keine Verbindungen nach außen</p>
+</div>
+
+<div class="overlay hidden" id="overScreen">
+  <div class="eyebrow">Der Wald wird still</div>
+  <h1 id="overTitle">Erwischt!</h1>
+  <div id="finalStats">
+    <div class="stat">
+      <div class="hud-value" id="finalTime">0 s</div>
+      <div class="hud-label">Überlebt</div>
+    </div>
+    <div class="stat">
+      <div class="hud-value" id="finalWolves">0</div>
+      <div class="hud-label">Wölfe entkommen</div>
+    </div>
+    <div class="stat">
+      <div class="hud-value" id="bestTime">0 s</div>
+      <div class="hud-label">Rekord</div>
+    </div>
+  </div>
+  <button id="retryBtn">Nochmal versuchen</button>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= Grundgerüst ================= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// iOS: Zoom-/Scroll-Gesten unterbinden
+['gesturestart','gesturechange','gestureend'].forEach(ev =>
+  document.addEventListener(ev, e => e.preventDefault(), {passive:false}));
+document.addEventListener('touchmove', e => e.preventDefault(), {passive:false});
+let lastTap = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTap < 350) e.preventDefault(); // Doppeltipp-Zoom
+  lastTap = now;
+}, {passive:false});
+
+/* ================= Welt ================= */
+const WORLD = 2600;
+const rand = (a,b) => a + Math.random()*(b-a);
+const dist = (ax,ay,bx,by) => Math.hypot(ax-bx, ay-by);
+
+const trees = [];
+function buildForest(){
+  trees.length = 0;
+  for (let i = 0; i < 170; i++){
+    const x = rand(60, WORLD-60), y = rand(60, WORLD-60);
+    if (dist(x, y, WORLD/2, WORLD/2) < 160) continue; // Startbereich frei
+    trees.push({x, y, r: rand(13,20), h: rand(46,78), tone: Math.random()});
+  }
+  trees.sort((a,b) => a.y - b.y);
+}
+
+// Bodentextur einmalig vorrendern (Performance)
+const TILE = 512;
+const ground = document.createElement('canvas');
+ground.width = ground.height = TILE;
+(function paintGround(){
+  const g = ground.getContext('2d');
+  g.fillStyle = '#1a3322';
+  g.fillRect(0,0,TILE,TILE);
+  for (let i = 0; i < 260; i++){ // Grasflecken
+    g.fillStyle = `rgba(${30+Math.random()*25|0},${70+Math.random()*30|0},${40+Math.random()*20|0},.5)`;
+    g.beginPath();
+    g.ellipse(Math.random()*TILE, Math.random()*TILE, rand(8,26), rand(5,14), rand(0,Math.PI), 0, Math.PI*2);
+    g.fill();
+  }
+  for (let i = 0; i < 130; i++){ // Grashalme
+    const x = Math.random()*TILE, y = Math.random()*TILE;
+    g.strokeStyle = 'rgba(120,160,100,.4)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-2,2), y - rand(3,7)); g.stroke();
+  }
+  for (let i = 0; i < 26; i++){ // Erdflecken
+    g.fillStyle = 'rgba(60,48,32,.28)';
+    g.beginPath();
+    g.ellipse(Math.random()*TILE, Math.random()*TILE, rand(12,30), rand(8,18), rand(0,Math.PI), 0, Math.PI*2);
+    g.fill();
+  }
+})();
+const groundPattern = ctx.createPattern(ground, 'repeat');
+
+/* ================= Audio (synthetisiert, keine Assets) ================= */
+let AC = null;
+function audio(){ if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+
+function howl(){
+  try{
+    const ac = audio(), t = ac.currentTime;
+    const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    const vib = ac.createOscillator(), vibG = ac.createGain();
+    o.type = 'sawtooth'; f.type = 'lowpass'; f.frequency.value = 900;
+    vib.frequency.value = 5.5; vibG.gain.value = 10;
+    vib.connect(vibG); vibG.connect(o.frequency);
+    o.frequency.setValueAtTime(310, t);
+    o.frequency.linearRampToValueAtTime(520, t + .55);
+    o.frequency.setValueAtTime(520, t + .9);
+    o.frequency.linearRampToValueAtTime(260, t + 1.9);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(.16, t + .3);
+    g.gain.setValueAtTime(.16, t + 1.1);
+    g.gain.linearRampToValueAtTime(0, t + 2);
+    o.connect(f); f.connect(g); g.connect(ac.destination);
+    o.start(t); vib.start(t); o.stop(t + 2.05); vib.stop(t + 2.05);
+  }catch(e){}
+}
+function chime(){ // Wolf gibt auf
+  try{
+    const ac = audio(), t = ac.currentTime;
+    [523, 784].forEach((fr, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = fr;
+      g.gain.setValueAtTime(0, t + i*.12);
+      g.gain.linearRampToValueAtTime(.12, t + i*.12 + .02);
+      g.gain.exponentialRampToValueAtTime(.001, t + i*.12 + .5);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t + i*.12); o.stop(t + i*.12 + .55);
+    });
+  }catch(e){}
+}
+function thud(){ // erwischt
+  try{
+    const ac = audio(), t = ac.currentTime;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + .4);
+    g.gain.setValueAtTime(.4, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .45);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t); o.stop(t + .5);
+  }catch(e){}
+}
+
+/* ================= Spielzustand ================= */
+const S = { MENU:0, PLAY:1, OVER:2 };
+let state = S.MENU;
+let player, wolf, camX, camY, elapsed, wolvesEscaped, nextWolfIn, warning, shake;
+let best = 0;
+try { best = parseFloat(localStorage.getItem('wolfswald-best')) || 0; } catch(e){}
+
+function reset(){
+  buildForest();
+  player = { x: WORLD/2, y: WORLD/2, dirX: 0, dirY: 1, speed: 175, anim: 0, moving: false };
+  wolf = null;
+  camX = player.x; camY = player.y;
+  elapsed = 0; wolvesEscaped = 0;
+  nextWolfIn = 5;          // erster Wolf nach 5 s
+  warning = 0; shake = 0;
+  document.getElementById('alarm').classList.remove('on');
+}
+
+/* ================= Steuerung ================= */
+const stick = { active:false, id:null, ox:0, oy:0, x:0, y:0 };
+const keys = {};
+
+canvas.addEventListener('touchstart', e => {
+  for (const t of e.changedTouches){
+    if (!stick.active){
+      stick.active = true; stick.id = t.identifier;
+      stick.ox = stick.x = t.clientX; stick.oy = stick.y = t.clientY;
+    }
+  }
+}, {passive:false});
+canvas.addEventListener('touchmove', e => {
+  for (const t of e.changedTouches){
+    if (stick.active && t.identifier === stick.id){ stick.x = t.clientX; stick.y = t.clientY; }
+  }
+}, {passive:false});
+function touchEnd(e){
+  for (const t of e.changedTouches){
+    if (stick.active && t.identifier === stick.id){ stick.active = false; stick.id = null; }
+  }
+}
+canvas.addEventListener('touchend', touchEnd);
+canvas.addEventListener('touchcancel', touchEnd);
+
+// Desktop-Fallback zum Testen
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup',   e => keys[e.key.toLowerCase()] = false);
+
+function inputVector(){
+  if (stick.active){
+    let dx = stick.x - stick.ox, dy = stick.y - stick.oy;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) return {x:0, y:0, m:0};
+    const m = Math.min(1, len / 60);
+    return { x: dx/len, y: dy/len, m };
+  }
+  let dx = 0, dy = 0;
+  if (keys['arrowleft']  || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+  if (keys['arrowup']    || keys['w']) dy -= 1;
+  if (keys['arrowdown']  || keys['s']) dy += 1;
+  const len = Math.hypot(dx, dy);
+  return len ? {x:dx/len, y:dy/len, m:1} : {x:0, y:0, m:0};
+}
+
+/* ================= Wolf ================= */
+function spawnWolf(){
+  // erscheint knapp außerhalb des Bildschirms, Richtung Spieler
+  const ang = rand(0, Math.PI*2);
+  const r = Math.hypot(W, H)/2 + 80;
+  const x = Math.min(WORLD-40, Math.max(40, player.x + Math.cos(ang)*r));
+  const y = Math.min(WORLD-40, Math.max(40, player.y + Math.sin(ang)*r));
+  const chaseTime = rand(7, 9.5);
+  const speedBoost = Math.min(60, elapsed * 0.8); // wird mit der Zeit schneller
+  wolf = { x, y, speed: 186 + speedBoost, chase: chaseTime, flee: 0, anim: 0, dirX: 0, dirY: 0 };
+}
+
+function updateWolf(dt){
+  if (!wolf) return;
+  wolf.anim += dt * 10;
+  if (wolf.chase > 0){
+    wolf.chase -= dt;
+    const dx = player.x - wolf.x, dy = player.y - wolf.y;
+    const d = Math.hypot(dx, dy) || 1;
+    wolf.dirX = dx/d; wolf.dirY = dy/d;
+    wolf.x += wolf.dirX * wolf.speed * dt;
+    wolf.y += wolf.dirY * wolf.speed * dt;
+    collideTrees(wolf, 14);
+    if (d < 26){ caught(); return; }
+    if (wolf.chase <= 0){ wolf.flee = 2.5; chime(); wolvesEscaped++; }
+  } else {
+    wolf.flee -= dt;
+    wolf.x -= wolf.dirX * wolf.speed * 1.1 * dt; // rennt davon
+    wolf.y -= wolf.dirY * wolf.speed * 1.1 * dt;
+    if (wolf.flee <= 0) wolf = null;
+  }
+}
+
+/* ================= Kollision & Update ================= */
+function collideTrees(ent, er){
+  for (const t of trees){
+    const dx = ent.x - t.x, dy = ent.y - t.y;
+    const d = Math.hypot(dx, dy), min = t.r + er;
+    if (d < min && d > 0.001){
+      ent.x = t.x + dx/d*min;
+      ent.y = t.y + dy/d*min;
+    }
+  }
+}
+
+function caught(){
+  state = S.OVER;
+  thud();
+  shake = 14;
+  if (elapsed > best){
+    best = elapsed;
+    try { localStorage.setItem('wolfswald-best', String(best)); } catch(e){}
+  }
+  document.getElementById('finalTime').textContent = elapsed.toFixed(1).replace('.', ',') + ' s';
+  document.getElementById('finalWolves').textContent = wolvesEscaped;
+  document.getElementById('bestTime').textContent = best.toFixed(1).replace('.', ',') + ' s';
+  document.getElementById('alarm').classList.remove('on');
+  setTimeout(() => document.getElementById('overScreen').classList.remove('hidden'), 550);
+}
+
+function update(dt){
+  if (state !== S.PLAY) return;
+  elapsed += dt;
+
+  const v = inputVector();
+  player.moving = v.m > 0;
+  if (player.moving){
+    player.dirX = v.x; player.dirY = v.y;
+    player.x += v.x * player.speed * v.m * dt;
+    player.y += v.y * player.speed * v.m * dt;
+    player.x = Math.min(WORLD-20, Math.max(20, player.x));
+    player.y = Math.min(WORLD-20, Math.max(20, player.y));
+    collideTrees(player, 11);
+    player.anim += dt * (8 + 4*v.m);
+  }
+
+  // Wolf-Spawn-Logik mit Vorwarnung
+  if (!wolf){
+    nextWolfIn -= dt;
+    if (nextWolfIn <= 1.6 && !warning){
+      warning = 1;
+      howl();
+      document.getElementById('alarm').classList.add('on');
+    }
+    if (nextWolfIn <= 0){
+      spawnWolf();
+      warning = 0;
+      nextWolfIn = rand(9, 14) - Math.min(4, elapsed/30); // Abstände schrumpfen leicht
+      document.getElementById('alarm').classList.remove('on');
+    }
+  }
+  updateWolf(dt);
+
+  // Kamera weich nachziehen
+  camX += (player.x - camX) * Math.min(1, dt*5);
+  camY += (player.y - camY) * Math.min(1, dt*5);
+  if (shake > 0) shake = Math.max(0, shake - dt*30);
+
+  document.getElementById('time').textContent = elapsed.toFixed(1).replace('.', ',') + ' s';
+  document.getElementById('wolfCount').textContent = wolvesEscaped;
+}
+
+/* ================= Zeichnen ================= */
+function drawTree(t){
+  const {x, y, r, h} = t;
+  // Schatten
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath(); ctx.ellipse(x, y+3, r*1.5, r*.55, 0, 0, Math.PI*2); ctx.fill();
+  // Stamm
+  ctx.fillStyle = '#4a3626';
+  ctx.fillRect(x-3.5, y-h*.42, 7, h*.42+4);
+  // Krone – drei Nadel-Ebenen
+  const g1 = 40 + t.tone*22, g2 = 78 + t.tone*26;
+  for (let i = 0; i < 3; i++){
+    const w = r * (1.9 - i*.42);
+    const top = y - h*(.38 + i*.3);
+    ctx.fillStyle = `rgb(${18+i*6},${g1+i*((g2-g1)/2)|0},${26+i*8})`;
+    ctx.beginPath();
+    ctx.moveTo(x, top - h*.32);
+    ctx.lineTo(x - w, top);
+    ctx.lineTo(x + w, top);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawPlayer(){
+  const {x, y} = player;
+  const step = player.moving ? Math.sin(player.anim*2) : 0;
+  const flip = player.dirX < -0.15 ? -1 : 1;
+  ctx.save();
+  ctx.translate(x, y);
+  // Schatten
+  ctx.fillStyle = 'rgba(0,0,0,.3)';
+  ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.scale(flip, 1);
+  const bob = player.moving ? Math.abs(Math.sin(player.anim*2))*2 : 0;
+  ctx.translate(0, -bob);
+  // Beine
+  ctx.strokeStyle = '#2b3a55'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-2, -12); ctx.lineTo(-2 + step*5, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 2, -12); ctx.lineTo( 2 - step*5, 0); ctx.stroke();
+  // Körper (rote Jacke)
+  ctx.fillStyle = '#b6452c';
+  ctx.beginPath();
+  ctx.roundRect(-6, -26, 12, 15, 5);
+  ctx.fill();
+  // Arme
+  ctx.strokeStyle = '#b6452c'; ctx.lineWidth = 3.5;
+  ctx.beginPath(); ctx.moveTo(-5, -23); ctx.lineTo(-7 - step*4, -14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 5, -23); ctx.lineTo( 7 + step*4, -14); ctx.stroke();
+  // Kopf + Mütze
+  ctx.fillStyle = '#e8b98f';
+  ctx.beginPath(); ctx.arc(1, -31, 5.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#d9a02b';
+  ctx.beginPath(); ctx.arc(1, -33, 5.5, Math.PI, 0); ctx.fill();
+  ctx.fillRect(-4.5, -34, 11, 2.5);
+  ctx.restore();
+}
+
+function drawWolf(){
+  if (!wolf) return;
+  const {x, y} = wolf;
+  const run = Math.sin(wolf.anim*2);
+  const flip = wolf.dirX * (wolf.chase > 0 ? 1 : -1) < 0 ? -1 : 1;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(0,0,0,.32)';
+  ctx.beginPath(); ctx.ellipse(0, 2, 17, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.scale(flip, 1);
+  ctx.translate(0, -Math.abs(run)*2.5);
+  // Beine
+  ctx.strokeStyle = '#3c4048'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-9, -8);  ctx.lineTo(-9 + run*6, 0);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-5, -8);  ctx.lineTo(-5 - run*6, 0);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 7, -8);  ctx.lineTo( 7 - run*6, 0);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10, -8);  ctx.lineTo(10 + run*6, 0);  ctx.stroke();
+  // Rumpf
+  ctx.fillStyle = '#565b64';
+  ctx.beginPath(); ctx.ellipse(0, -12, 15, 6.5, run*.06, 0, Math.PI*2); ctx.fill();
+  // Schwanz
+  ctx.strokeStyle = '#565b64'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-14, -13); ctx.quadraticCurveTo(-21, -16 + run*3, -23, -11 + run*3); ctx.stroke();
+  // Kopf
+  ctx.fillStyle = '#61666f';
+  ctx.beginPath(); ctx.ellipse(14, -16, 7, 5.5, -.15, 0, Math.PI*2); ctx.fill();
+  // Schnauze
+  ctx.beginPath(); ctx.moveTo(19, -17); ctx.lineTo(25, -14.5); ctx.lineTo(19, -13); ctx.closePath(); ctx.fill();
+  // Ohren
+  ctx.beginPath(); ctx.moveTo(10, -20); ctx.lineTo(12, -26); ctx.lineTo(15, -20); ctx.closePath(); ctx.fill();
+  // Auge – glüht während der Jagd
+  ctx.fillStyle = wolf.chase > 0 ? '#ffb347' : '#20242a';
+  ctx.beginPath(); ctx.arc(15.5, -17, 1.7, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  const sx = shake ? rand(-shake, shake) : 0;
+  const sy = shake ? rand(-shake, shake) : 0;
+  const ox = W/2 - camX + sx, oy = H/2 - camY + sy;
+
+  ctx.save();
+  ctx.translate(ox, oy);
+
+  // Boden
+  ctx.fillStyle = groundPattern;
+  ctx.save();
+  ctx.fillRect(camX - W/2 - 40, camY - H/2 - 40, W + 80, H + 80);
+  ctx.restore();
+
+  // Waldrand
+  ctx.strokeStyle = 'rgba(6,14,9,.9)'; ctx.lineWidth = 30;
+  ctx.strokeRect(-15, -15, WORLD+30, WORLD+30);
+
+  // Entities nach y sortiert zeichnen (nur sichtbare Bäume)
+  const drawables = [];
+  const vx0 = camX - W/2 - 90, vx1 = camX + W/2 + 90;
+  const vy0 = camY - H/2 - 120, vy1 = camY + H/2 + 60;
+  for (const t of trees){
+    if (t.x > vx0 && t.x < vx1 && t.y > vy0 && t.y < vy1) drawables.push({y: t.y, fn: () => drawTree(t)});
+  }
+  drawables.push({y: player.y, fn: drawPlayer});
+  if (wolf) drawables.push({y: wolf.y, fn: drawWolf});
+  drawables.sort((a,b) => a.y - b.y);
+  for (const d of drawables) d.fn();
+
+  ctx.restore();
+
+  // Dämmerungs-Vignette
+  const vg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*.35, W/2, H/2, Math.max(W,H)*.75);
+  vg.addColorStop(0, 'rgba(8,18,12,0)');
+  vg.addColorStop(1, 'rgba(4,10,7,.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Rote Gefahr-Vignette bei Warnung/Jagd
+  const danger = warning ? .5 : (wolf && wolf.chase > 0 ? Math.min(.55, 90/Math.max(40, dist(wolf.x, wolf.y, player.x, player.y))) : 0);
+  if (danger > 0.05){
+    const dg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*.42, W/2, H/2, Math.max(W,H)*.72);
+    dg.addColorStop(0, 'rgba(201,64,58,0)');
+    dg.addColorStop(1, `rgba(201,64,58,${danger*.5})`);
+    ctx.fillStyle = dg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Richtungspfeil zum Wolf, wenn er außerhalb des Bildes ist
+  if (state === S.PLAY && wolf && wolf.chase > 0){
+    const wx = wolf.x - camX + W/2, wy = wolf.y - camY + H/2;
+    if (wx < -10 || wx > W+10 || wy < -10 || wy > H+10){
+      const ang = Math.atan2(wolf.y - player.y, wolf.x - player.x);
+      const rx = W/2 + Math.cos(ang) * (Math.min(W,H)/2 - 46);
+      const ry = H/2 + Math.sin(ang) * (Math.min(W,H)/2 - 46);
+      ctx.save();
+      ctx.translate(rx, ry); ctx.rotate(ang);
+      ctx.fillStyle = 'rgba(201,64,58,.9)';
+      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-4, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Joystick
+  if (stick.active && state === S.PLAY){
+    ctx.strokeStyle = 'rgba(236,230,212,.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(stick.ox, stick.oy, 46, 0, Math.PI*2); ctx.stroke();
+    let dx = stick.x - stick.ox, dy = stick.y - stick.oy;
+    const l = Math.hypot(dx, dy) || 1, cl = Math.min(l, 46);
+    ctx.fillStyle = 'rgba(236,230,212,.55)';
+    ctx.beginPath(); ctx.arc(stick.ox + dx/l*cl, stick.oy + dy/l*cl, 17, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+/* ================= Loop ================= */
+let last = performance.now();
+function frame(now){
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.1) dt = 0.1; // Tab war im Hintergrund
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
+
+function start(){
+  audio(); // AudioContext mit User-Geste entsperren
+  reset();
+  state = S.PLAY;
+  document.getElementById('startScreen').classList.add('hidden');
+  document.getElementById('overScreen').classList.add('hidden');
+}
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('retryBtn').addEventListener('click', start);
+
+reset();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
